@@ -1,5 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-exec 2>&1
-python $(realpath $SCRIPT_DIR/../MQTTtoGridMeter.py)
+kill $(pgrep -f "python $SCRIPT_DIR/MQTTtoGridMeter.py")
