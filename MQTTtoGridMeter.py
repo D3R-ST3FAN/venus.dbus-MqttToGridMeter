@@ -50,13 +50,14 @@ power_l1 = None
 power_l2 = None
 power_l3 = None
 l_avg = None
+dbusservice = None
 
 
 # MQTT Abfragen:
 
 def on_disconnect(client, userdata, rc):
     global verbunden
-    print("Client Got Disconnected")
+    print("MQTT client Got Disconnected")
     if rc != 0:
         print('Unexpected MQTT disconnection. Will auto-reconnect')
 
@@ -88,7 +89,7 @@ def on_message(client, userdata, msg):
 
     try:
 
-        global powercurr, totalin, totalout, power_l1, power_l2, power_l3, l_avg
+        global powercurr, totalin, totalout, power_l1, power_l2, power_l3, l_avg, dbusservice
         if msg.topic == "sensor/hausstrom/hausstrom_sum_active_instantaneous_power":
             powercurr = float(msg.payload)
         elif msg.topic == "sensor/hausstrom/hausstrom_l1_active_instantaneous_power":
@@ -105,8 +106,10 @@ def on_message(client, userdata, msg):
         #if not power_l1 is None and not power_l2 is None and not power_l3 is None:
         #    l_avg = (power_l1 + power_l2 + power_l3) / 3
 
+        dbusservice._update()
+
     except Exception as e:
-        logging.exception("Programm MQTTtoMeter ist abgestuerzt. (on message Funkion)")
+        logging.exception("Programm MQTTtoMeter ist abgestuerzt. (during on_message function)")
         print(e)
         print("Im MQTTtoMeter Programm ist etwas beim auslesen der Nachrichten schief gegangen")
 
@@ -146,7 +149,8 @@ class DbusDummyService:
       self._dbusservice.add_path(
         path, settings['initial'], gettextcallback=settings['textformat'], writeable=True, onchangecallback=self._handlechangedvalue)
 
-    gobject.timeout_add(1000, self._update) # pause 1000ms before the next request
+    # now _update ios called from on_message: 
+    #   gobject.timeout_add(1000, self._update) # pause 1000ms before the next request
 
   
   def _update(self):
@@ -208,7 +212,8 @@ def main():
   def _v(p, v): return (str(round(v, 1)) + 'V')
   def _hz(p, v): return (str(round(v, 2)) + 'Hz')
 
-  pvac_output = DbusDummyService(
+  global dbusservice
+  dbusservice = DbusDummyService(
     #servicename='com.victronenergy.grid',
     servicename='com.victronenergy.grid.cgwacs_edl21_ha',
     deviceinstance=0,
