@@ -101,7 +101,7 @@ def on_message(client, userdata, msg):
         elif msg.topic == "sensor/hausstrom/hausstrom_positive_active_energy_total":
             totalin = round(float(msg.payload) / 1000, 3)
         elif msg.topic == "sensor/hausstrom/solar_energy_to_grid":
-            totalout = round(float(msg.payload) / 1000, 3)
+            totalout = round(float(msg.payload), 3)
 
         #if not power_l1 is None and not power_l2 is None and not power_l3 is None:
         #    l_avg = (power_l1 + power_l2 + power_l3) / 3
@@ -167,7 +167,7 @@ class DbusDummyService:
         self._dbusservice['/Ac/L2/Power'] = l_avg
         self._dbusservice['/Ac/L3/Power'] = l_avg
     else:
-        if not power_l1 is None: self._dbusservice['/Ac/L1/Current'] = round(power_l1 / 230, 2)  # /3 ???
+        if not power_l1 is None: self._dbusservice['/Ac/L1/Current'] = round(power_l1 / 230, 2)
         if not power_l2 is None: self._dbusservice['/Ac/L2/Current'] = round(power_l2 / 230, 2)
         if not power_l3 is None: self._dbusservice['/Ac/L3/Current'] = round(power_l3 / 230, 2)
         if not power_l1 is None: self._dbusservice['/Ac/L1/Power'] = power_l1
@@ -177,10 +177,10 @@ class DbusDummyService:
     if not totalin is None: self._dbusservice['/Ac/Energy/Forward'] = totalin
     if not totalout is None: self._dbusservice['/Ac/Energy/Reverse'] = totalout
 
-    if not powercurr is None: logging.info("House Consumption: {:.0f} W".format(powercurr))
-    if not power_l3 is None: logging.info("power_l3: {:.0f} W".format(power_l3))
-    if not totalin is None: logging.info("totalin: {:.0f} W".format(totalin))
-    if not totalout is None: logging.info("totalout: {:.0f} W".format(totalout))
+    if not powercurr is None: logging.debug("House Consumption: {:.0f} W".format(powercurr))
+    if not power_l3 is None: logging.debug("power_l3: {:.0f} W".format(power_l3))
+    if not totalin is None: logging.debug("totalin: {:.0f} kWh".format(totalin))
+    if not totalout is None: logging.debug(f"totalout: {totalout} kWh")
 
     # increment UpdateIndex - to show that new data is available
     index = self._dbusservice[path_UpdateIndex] + 1  # increment index
@@ -197,7 +197,17 @@ class DbusDummyService:
     return True # accept the change
 
 def main():
-  logging.basicConfig(level=logging.INFO) # use .INFO for less, .DEBUG for more logging
+  #logging.basicConfig(level=logging.INFO) # use .INFO for less, .DEBUG for more logging
+  logging.basicConfig(
+      format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+      datefmt="%Y-%m-%d %H:%M:%S",
+      level=logging.INFO,
+      # level=logging.DEBUG,
+      handlers=[
+          logging.FileHandler(f"{(os.path.dirname(os.path.realpath(__file__)))}/current.log"),
+          logging.StreamHandler(),
+      ],
+  )
   thread.daemon = True # allow the program to quit
 
   from dbus.mainloop.glib import DBusGMainLoop
