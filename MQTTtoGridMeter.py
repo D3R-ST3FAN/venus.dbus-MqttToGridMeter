@@ -17,9 +17,11 @@ pip install paho-mqtt
 """
 
 import os
+import socket
 import sys
 import time
 import logging
+import logging.handlers
 import platform
 
 import paho.mqtt.client as mqtt
@@ -162,10 +164,7 @@ class DbusDummyService:
             self._dbusservice['/Ac/L1/Power'] = 0
             self._dbusservice['/Ac/L2/Power'] = 0
             self._dbusservice['/Ac/L3/Power'] = 0
-            index = self._dbusservice[path_UpdateIndex] + 1  # increment index
-            if index > 255:   # maximum value of the index
-                index = 0       # overflow from 255 to 0
-            self._dbusservice[path_UpdateIndex] = index
+            self.update_dbus_index()
             return True
 
         if not powercurr is None:
@@ -194,13 +193,16 @@ class DbusDummyService:
         log_if_not_none(totalin, "totalin", "kWh")
         log_if_not_none(totalout, "totalout", "kWh")
 
-        # increment UpdateIndex - to show that new data is available
+        self.update_dbus_index()
+
+        return True
+
+    def update_dbus_index(self):
+        ''' increment UpdateIndex - to show that new data is available '''
         index = self._dbusservice[path_UpdateIndex] + 1  # increment index
         if index > 255:   # maximum value of the index
             index = 0       # overflow from 255 to 0
         self._dbusservice[path_UpdateIndex] = index
-
-        return True
 
     def _sign_of_life(self):
         now = time.time()
@@ -217,17 +219,24 @@ class DbusDummyService:
 
 
 def main():
-    # logging.basicConfig(level=logging.INFO) # use .INFO for less, .DEBUG for more logging
     logging.basicConfig(
-        format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+        format="%(asctime)s,%(msecs)d %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        # level=logging.INFO,
         level=logging.DEBUG,
         handlers=[
-            logging.FileHandler(f"{(os.path.dirname(os.path.realpath(__file__)))}/current.log"),
             logging.StreamHandler(),
         ],
     )
+    syslog_handler = logging.handlers.SysLogHandler(address="/dev/log")
+    syslog_handler.setLevel(level=logging.DEBUG)
+    syslog_handler.setFormatter(logging.Formatter(
+        f"{socket.gethostname()} mqtttogrid %(asctime)s,%(msecs)d %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(syslog_handler)
+
+    file_handler = logging.FileHandler(f"{(os.path.dirname(os.path.realpath(__file__)))}/current.log")
+    file_handler.setLevel(level=logging.INFO)
+    logging.getLogger().addHandler(file_handler)
+
     thread.daemon = True  # allow the program to quit
 
     from dbus.mainloop.glib import DBusGMainLoop
