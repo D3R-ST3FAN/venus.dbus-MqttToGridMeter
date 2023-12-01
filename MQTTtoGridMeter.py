@@ -4,6 +4,11 @@
 Changed a lot of a Script originall created by Ralf Zimmermann (mail@ralfzimmermann.de) in 2020.
 The orginal code and its documentation can be found on: https://github.com/RalfZim/venus.dbus-fronius-smartmeter
 Used https://github.com/victronenergy/velib_python/blob/master/dbusdummyservice.py as basis for this service.
+
+Links (DSTK_2023-11-27):
+https://github.com/victronenergy/venus/wiki/dbus-api 
+https://www.victronenergy.com/live/ccgx:modbustcp_faq
+https://github.com/victronenergy/venus/wiki/howto-add-a-driver-to-Venus
 """
 
 """
@@ -42,21 +47,12 @@ broker_pw = "xxx"
 Zaehlersensorpfad = "sensor/hausstrom"
 
 # Variablen setzen
-verbunden = 0
-powercurr = None
-totalin = None
-totalout = None
-power_l1 = None
-power_l2 = None
-power_l3 = None
-l_avg = None
 dbusservice = None
 
 
 # MQTT Abfragen:
 
 def on_disconnect(client, userdata, rc):
-    global verbunden
     print("MQTT client Got Disconnected")
     if rc != 0:
         print('Unexpected MQTT disconnection. Will auto-reconnect')
@@ -67,18 +63,14 @@ def on_disconnect(client, userdata, rc):
     try:
         print("Trying to Reconnect")
         client.connect(broker_address)
-        verbunden = 1
     except Exception as e:
         logging.exception("Fehler beim reconnecten mit Broker")
         print("Error in Retrying to Connect with Broker")
-        verbunden = 0
         print(e)
 
 def on_connect(client, userdata, flags, rc):
-        global verbunden
         if rc == 0:
             print("Connected to MQTT Broker!")
-            verbunden = 1
             ok = client.subscribe(Zaehlersensorpfad+"/#", 0)
             print("subscribed to "+Zaehlersensorpfad+" ok="+str(ok))
         else:
@@ -89,24 +81,19 @@ def on_message(client, userdata, msg):
 
     try:
 
-        global powercurr, totalin, totalout, power_l1, power_l2, power_l3, l_avg, dbusservice
+        global dbusservice
         if msg.topic == "sensor/hausstrom/hausstrom_sum_active_instantaneous_power":
-            powercurr = float(msg.payload)
+            dbusservice.update(powercurr = float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l1_active_instantaneous_power":
-            power_l1 = float(msg.payload)
+            dbusservice.update(power_l1 = float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l2_active_instantaneous_power":
-            power_l2 = float(msg.payload)
+            dbusservice.update(power_l2 = float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l3_active_instantaneous_power":
-            power_l3 = float(msg.payload)
+            dbusservice.update(power_l3 = float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_positive_active_energy_total":
-            totalin = round(float(msg.payload) / 1000, 3)
+            dbusservice.update(totalin = round(float(msg.payload) / 1000, 3))
         elif msg.topic == "sensor/hausstrom/solar_energy_to_grid":
-            totalout = round(float(msg.payload), 3)
-
-        #if not power_l1 is None and not power_l2 is None and not power_l3 is None:
-        #    l_avg = (power_l1 + power_l2 + power_l3) / 3
-
-        dbusservice._update()
+            dbusservice.update(totalout = round(float(msg.payload), 3))
 
     except Exception as e:
         logging.exception("Programm MQTTtoMeter ist abgestuerzt. (during on_message function)")
@@ -141,8 +128,8 @@ class DbusDummyService:
     self._dbusservice.add_path('/ProductName', productname)
     self._dbusservice.add_path('/FirmwareVersion', 0.1)
     self._dbusservice.add_path('/HardwareVersion', 0)
-    self._dbusservice.add_path('/Connected', 1)
-    self._dbusservice.add_path('/Position', 0) # DSTK_2022-10-25 bewirkt nichts ???
+    self._dbusservice.add_path('/Connected', 0)
+    self._dbusservice.add_path('/Position', 0) # DSTK_2022-10-25 bewirkt bei Gridmeter nichts ???
     self._dbusservice.add_path('/UpdateIndex', 0)
 
     for path, settings in self._paths.items():
@@ -152,32 +139,54 @@ class DbusDummyService:
     # now _update ios called from on_message: 
     #   gobject.timeout_add(1000, self._update) # pause 1000ms before the next request
 
-  
-  def _update(self):
+    self._lastUpdate = 0
+    sign_of_life_id = gobject.timeout_add(10 * 1000, self._sign_of_life)
+    logging.debug(f"sign_of_life_id = {sign_of_life_id}")
 
-    if not powercurr is None: self._dbusservice['/Ac/Power'] =  powercurr # positive: consumption, negative: feed into grid
+  
+  def update(self, powercurr = None, power_l1 = None, power_l2 = None, power_l3 = None, totalin = None, totalout = None, gridloss = False):
+
+    if gridloss:
+        if self._dbusservice['/Connected'] != 1:
+           logging.debug("Grid loss 2nd")
+           return
+        logging.debug("Grid loss")
+        self._dbusservice['/Connected'] = 0 # scheint nichts zu bewirken. Jedenfalls kein Grid loss alarm
+        # set everything to 0
+        self._dbusservice['/Ac/Power'] =  0
+        self._dbusservice['/Ac/L1/Current'] =  0
+        self._dbusservice['/Ac/L2/Current'] =  0
+        self._dbusservice['/Ac/L3/Current'] =  0
+        self._dbusservice['/Ac/L1/Power'] =  0
+        self._dbusservice['/Ac/L2/Power'] =  0
+        self._dbusservice['/Ac/L3/Power'] =  0
+        index = self._dbusservice[path_UpdateIndex] + 1  # increment index
+        if index > 255:   # maximum value of the index
+            index = 0       # overflow from 255 to 0
+        self._dbusservice[path_UpdateIndex] = index
+        return True
+    else:
+        if not powercurr is None: self._dbusservice['/Ac/Power'] =  powercurr # positive: consumption, negative: feed into grid
+        if not powercurr is None: logging.debug(f"powercur = {powercurr}")
+        self._dbusservice['/Connected'] = 1
+        self._lastUpdate = time.time()
+
     self._dbusservice['/Ac/L1/Voltage'] = 230
     self._dbusservice['/Ac/L2/Voltage'] = 230
     self._dbusservice['/Ac/L3/Voltage'] = 230
-    if not l_avg is None:
-        self._dbusservice['/Ac/L1/Current'] = round(l_avg / 230 ,2)
-        self._dbusservice['/Ac/L2/Current'] = round(l_avg / 230 ,2)
-        self._dbusservice['/Ac/L3/Current'] = round(l_avg / 230 ,2)
-        self._dbusservice['/Ac/L1/Power'] = l_avg
-        self._dbusservice['/Ac/L2/Power'] = l_avg
-        self._dbusservice['/Ac/L3/Power'] = l_avg
-    else:
-        if not power_l1 is None: self._dbusservice['/Ac/L1/Current'] = round(power_l1 / 230, 2)
-        if not power_l2 is None: self._dbusservice['/Ac/L2/Current'] = round(power_l2 / 230, 2)
-        if not power_l3 is None: self._dbusservice['/Ac/L3/Current'] = round(power_l3 / 230, 2)
-        if not power_l1 is None: self._dbusservice['/Ac/L1/Power'] = power_l1
-        if not power_l2 is None: self._dbusservice['/Ac/L2/Power'] = power_l2
-        if not power_l3 is None: self._dbusservice['/Ac/L3/Power'] = power_l3
+    if not power_l1 is None: self._dbusservice['/Ac/L1/Current'] = round(power_l1 / 230, 2)
+    if not power_l2 is None: self._dbusservice['/Ac/L2/Current'] = round(power_l2 / 230, 2)
+    if not power_l3 is None: self._dbusservice['/Ac/L3/Current'] = round(power_l3 / 230, 2)
+    if not power_l1 is None: self._dbusservice['/Ac/L1/Power'] = power_l1
+    if not power_l2 is None: self._dbusservice['/Ac/L2/Power'] = power_l2
+    if not power_l3 is None: self._dbusservice['/Ac/L3/Power'] = power_l3
 
     if not totalin is None: self._dbusservice['/Ac/Energy/Forward'] = totalin
     if not totalout is None: self._dbusservice['/Ac/Energy/Reverse'] = totalout
 
     if not powercurr is None: logging.debug("House Consumption: {:.0f} W".format(powercurr))
+    if not power_l1 is None: logging.debug("power_l1: {:.0f} W".format(power_l1))
+    if not power_l2 is None: logging.debug("power_l2: {:.0f} W".format(power_l2))
     if not power_l3 is None: logging.debug("power_l3: {:.0f} W".format(power_l3))
     if not totalin is None: logging.debug("totalin: {:.0f} kWh".format(totalin))
     if not totalout is None: logging.debug(f"totalout: {totalout} kWh")
@@ -188,9 +197,16 @@ class DbusDummyService:
       index = 0       # overflow from 255 to 0
     self._dbusservice[path_UpdateIndex] = index
 
-    self._lastUpdate = time.time()
-
     return True
+
+  def _sign_of_life(self):
+    now = time.time()
+    last_update_ago_seconds = now - self._lastUpdate
+    logging.debug(f"ok: last update was {last_update_ago_seconds} seconds ago.")
+    if last_update_ago_seconds > 10:
+        logging.warning(f"last update was {last_update_ago_seconds} seconds ago.")
+        self.update(gridloss=True)
+    return True # must return True if it wants to be rescheduled
 
   def _handlechangedvalue(self, path, value):
     logging.debug("someone else updated %s to %s" % (path, value))
