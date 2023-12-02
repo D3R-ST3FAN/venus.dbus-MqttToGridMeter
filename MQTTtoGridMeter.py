@@ -46,171 +46,146 @@ broker_user = "mqtttogridmeter"
 broker_pw = "xxx"
 Zaehlersensorpfad = "sensor/hausstrom"
 
-# Variablen setzen
-dbusservice = None
 
-
-# MQTT Abfragen:
+# MQTT:
 
 def on_disconnect(client, userdata, rc):  # pylint: disable=unused-argument
-    print("MQTT client Got Disconnected")
-    if rc != 0:
-        print('Unexpected MQTT disconnection. Will auto-reconnect')
-
-    else:
-        print('rc value:' + str(rc))
+    logging.info('Unexpected MQTT disconnection rc=%s. Will auto-reconnect', str(rc))
 
     try:
-        print("Trying to Reconnect")
+        logging.info("Trying to Reconnect")
         client.connect(broker_address)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception("Fehler beim reconnecten mit Broker")
-        print("Error in Retrying to Connect with Broker")
-        print(e)
+        logging.exception("Error in Retrying to Connect with Broker", exc_info=e)
 
 
 def on_connect(client, userdata, flags, rc):  # pylint: disable=unused-argument
     if rc == 0:
-        print("Connected to MQTT Broker!")
+        logging.info("Connected to MQTT Broker!")
         ok = client.subscribe(Zaehlersensorpfad+"/#", 0)
-        print("subscribed to "+Zaehlersensorpfad+" ok="+str(ok))
+        logging.debug("subscribed to %s ok=%s", Zaehlersensorpfad, str(ok))
     else:
-        print(f"Failed to connect, return code {rc}\n")
+        logging.warning(f"Failed to connect, return code {rc}\n")
 
 
 def on_message(client, userdata, msg):  # pylint: disable=unused-argument
-
     try:
 
-        # global dbusservice
         if msg.topic == "sensor/hausstrom/hausstrom_sum_active_instantaneous_power":
-            dbusservice.update(powercurr=float(msg.payload))
+            get_dbus_service().update(powercurr=float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l1_active_instantaneous_power":
-            dbusservice.update(power_l1=float(msg.payload))
+            get_dbus_service().update(power_l1=float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l2_active_instantaneous_power":
-            dbusservice.update(power_l2=float(msg.payload))
+            get_dbus_service().update(power_l2=float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_l3_active_instantaneous_power":
-            dbusservice.update(power_l3=float(msg.payload))
+            get_dbus_service().update(power_l3=float(msg.payload))
         elif msg.topic == "sensor/hausstrom/hausstrom_positive_active_energy_total":
-            dbusservice.update(totalin=round(float(msg.payload) / 1000, 3))
+            get_dbus_service().update(totalin=round(float(msg.payload) / 1000, 3))
         elif msg.topic == "sensor/hausstrom/solar_energy_to_grid":
-            dbusservice.update(totalout=round(float(msg.payload), 3))
+            get_dbus_service().update(totalout=round(float(msg.payload), 3))
 
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception("Programm MQTTtoMeter ist abgestuerzt. (during on_message function)")
-        print(e)
-        print("Im MQTTtoMeter Programm ist etwas beim auslesen der Nachrichten schief gegangen")
+        logging.exception("MQTTtoGridMeter crashed during on_message", exc_info=e)
 
 
-def log_if_not_none(value, label, unit=''):
-    if value is not None:
-        logging.debug(f"{label}: {value:.0f} {unit}")
+def log_value(value, label, unit=''):
+    logging.debug(f"{label}: {value:.0f} {unit}")
 
 
 class DbusDummyService:
     def __init__(self, servicename, deviceinstance, paths, productname='MQTTMeter1', connection='HA Hausstrom Dirk'):
-        self._dbusservice = VeDbusService(servicename)
+        self._vedbusservice = VeDbusService(servicename)
         self._paths = paths
 
         logging.debug(f"{servicename} / DeviceInstance = {deviceinstance}")
 
         # Create the management objects, as specified in the ccgx dbus-api document
-        self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
-        self._dbusservice.add_path('/Mgmt/ProcessVersion',
-                                   'Unkown version, and running on Python ' + platform.python_version())
-        self._dbusservice.add_path('/Mgmt/Connection', connection)
+        self._vedbusservice.add_path('/Mgmt/ProcessName', __file__)
+        self._vedbusservice.add_path('/Mgmt/ProcessVersion',
+                                     'Unkown version, and running on Python ' + platform.python_version())
+        self._vedbusservice.add_path('/Mgmt/Connection', connection)
 
         # Create the mandatory objects
-        self._dbusservice.add_path('/DeviceInstance', deviceinstance)
-        self._dbusservice.add_path('/ProductId', 45069)  # 45069 = value used in ac_sensor_bridge.cpp of dbus-cgwacs
+        self._vedbusservice.add_path('/DeviceInstance', deviceinstance)
+        self._vedbusservice.add_path('/ProductId', 45069)  # 45069 = value used in ac_sensor_bridge.cpp of dbus-cgwacs
 
         # DSTK_2022-10-25: from https://github.com/fabian-lauer/dbus-shelly-3em-smartmeter/blob/main/dbus-shelly-3em-smartmeter.py
         # self._dbusservice.add_path('/ProductId', 45069) # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
         # found on https://www.sascha-curth.de/projekte/005_Color_Control_GX.html#experiment - should be an ET340 Engerie Meter
-        self._dbusservice.add_path('/DeviceType', 345)
-        self._dbusservice.add_path('/Role', 'grid')
+        self._vedbusservice.add_path('/DeviceType', 345)
+        self._vedbusservice.add_path('/Role', 'grid')
 
-        self._dbusservice.add_path('/ProductName', productname)
-        self._dbusservice.add_path('/FirmwareVersion', 0.1)
-        self._dbusservice.add_path('/HardwareVersion', 0)
-        self._dbusservice.add_path('/Connected', 0)
-        self._dbusservice.add_path('/Position', 0)  # DSTK_2022-10-25 bewirkt bei Gridmeter nichts ???
-        self._dbusservice.add_path('/UpdateIndex', 0)
+        self._vedbusservice.add_path('/ProductName', productname)
+        self._vedbusservice.add_path('/FirmwareVersion', 0.1)
+        self._vedbusservice.add_path('/HardwareVersion', 0)
+        self._vedbusservice.add_path('/Connected', 0)
+        self._vedbusservice.add_path('/Position', 0)  # DSTK_2022-10-25 bewirkt bei Gridmeter nichts ???
+        self._vedbusservice.add_path('/UpdateIndex', 0)
 
         for path, settings in self._paths.items():
-            self._dbusservice.add_path(
+            self._vedbusservice.add_path(
                 path, settings['initial'], gettextcallback=settings['textformat'], writeable=True, onchangecallback=self._handlechangedvalue)
 
         # now _update ios called from on_message:
         #   gobject.timeout_add(1000, self._update) # pause 1000ms before the next request
 
-        self._lastUpdate = 0
+        self._last_update = 0
         sign_of_life_id = gobject.timeout_add(10 * 1000, self._sign_of_life)
         logging.debug(f"sign_of_life_id = {sign_of_life_id}")
 
-    def update(self, powercurr=None, power_l1=None, power_l2=None, power_l3=None, totalin=None, totalout=None, gridloss=False):
+    def update(self,
+               powercurr=None,
+               power_l1=None, power_l2=None, power_l3=None,
+               totalin=None, totalout=None,
+               gridloss=False):
 
         if gridloss:
-            if self._dbusservice['/Connected'] != 1:
-                logging.debug("Grid loss 2nd")
-                return
-            logging.debug("Grid loss")
-            self._dbusservice['/Connected'] = 0  # scheint nichts zu bewirken. Jedenfalls kein Grid loss alarm
-            # set everything to 0
-            self._dbusservice['/Ac/Power'] = 0
-            self._dbusservice['/Ac/L1/Current'] = 0
-            self._dbusservice['/Ac/L2/Current'] = 0
-            self._dbusservice['/Ac/L3/Current'] = 0
-            self._dbusservice['/Ac/L1/Power'] = 0
-            self._dbusservice['/Ac/L2/Power'] = 0
-            self._dbusservice['/Ac/L3/Power'] = 0
-            self.update_dbus_index()
-            return True
+            logging.warning("Grid lost. exit")
+            self._vedbusservice['/Connected'] = 0  # does not seem to have any effect. At least no grid lost alarm
+            os._exit(1)  # exit in order to disconnect and destroy the dbusservice object
 
-        if not powercurr is None:
-            self._dbusservice['/Ac/Power'] = powercurr  # positive: consumption, negative: feed into grid
-        self._dbusservice['/Connected'] = 1
-        self._lastUpdate = time.time()
+        self._vedbusservice['/Connected'] = 1
+        self._last_update = time.time()
 
-        self._dbusservice['/Ac/L1/Voltage'] = 230
-        self._dbusservice['/Ac/L2/Voltage'] = 230
-        self._dbusservice['/Ac/L3/Voltage'] = 230
+        self._vedbusservice['/Ac/L1/Voltage'] = 230
+        self._vedbusservice['/Ac/L2/Voltage'] = 230
+        self._vedbusservice['/Ac/L3/Voltage'] = 230
 
         for i, power in enumerate([power_l1, power_l2, power_l3], start=1):
             if power is not None:
-                self._dbusservice[f'/Ac/L{i}/Current'] = round(power / 230, 2)
-                self._dbusservice[f'/Ac/L{i}/Power'] = power
+                self._vedbusservice[f'/Ac/L{i}/Current'] = round(power / 230, 2)
+                self._vedbusservice[f'/Ac/L{i}/Power'] = power
+                log_value(power, f"power_l{i}", "W")
 
         if totalin is not None:
-            self._dbusservice['/Ac/Energy/Forward'] = totalin
-        if totalout is not None:
-            self._dbusservice['/Ac/Energy/Reverse'] = totalout
+            self._vedbusservice['/Ac/Energy/Forward'] = totalin  # consumption
+            log_value(totalin, "totalin", "kWh")
 
-        log_if_not_none(powercurr, "House Consumption", "W")
-        log_if_not_none(power_l1, "power_l1", "W")
-        log_if_not_none(power_l2, "power_l2", "W")
-        log_if_not_none(power_l3, "power_l3", "W")
-        log_if_not_none(totalin, "totalin", "kWh")
-        log_if_not_none(totalout, "totalout", "kWh")
+        if totalout is not None:
+            self._vedbusservice['/Ac/Energy/Reverse'] = totalout  # feed into grid
+            log_value(totalout, "totalout", "kWh")
+
+        if not powercurr is None:
+            self._vedbusservice['/Ac/Power'] = powercurr  # positive: consumption, negative: feed into grid
+            log_value(powercurr, "House Consumption", "W")
 
         self.update_dbus_index()
 
-        return True
-
     def update_dbus_index(self):
         ''' increment UpdateIndex - to show that new data is available '''
-        index = self._dbusservice[path_UpdateIndex] + 1  # increment index
+        index = self._vedbusservice[path_UpdateIndex] + 1  # increment index
         if index > 255:   # maximum value of the index
             index = 0       # overflow from 255 to 0
-        self._dbusservice[path_UpdateIndex] = index
+        self._vedbusservice[path_UpdateIndex] = index
 
     def _sign_of_life(self):
         now = time.time()
-        last_update_ago_seconds = now - self._lastUpdate
-        logging.debug(f"ok: last update was {last_update_ago_seconds} seconds ago.")
+        last_update_ago_seconds = now - self._last_update
         if last_update_ago_seconds > 10:
             logging.warning(f"last update was {last_update_ago_seconds} seconds ago.")
             self.update(gridloss=True)
+        else:
+            logging.debug(f"ok: last update was {last_update_ago_seconds} seconds ago.")
         return True  # must return True if it wants to be rescheduled
 
     def _handlechangedvalue(self, path, value):
@@ -218,7 +193,18 @@ class DbusDummyService:
         return True  # accept the change
 
 
-def main():
+def init_mqtt():
+    client = mqtt.Client(MQTTNAME)  # create new instance
+    client.username_pw_set(broker_user, broker_pw)
+    client.on_disconnect = on_disconnect
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(broker_address)  # connect to broker
+
+    client.loop_start()
+
+
+def init_logging():
     logging.basicConfig(
         format="%(asctime)s,%(msecs)d %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -235,14 +221,11 @@ def main():
 
     file_handler = logging.FileHandler(f"{(os.path.dirname(os.path.realpath(__file__)))}/current.log")
     file_handler.setLevel(level=logging.INFO)
+    file_handler.setFormatter(logging.Formatter(f"%(asctime)s,%(msecs)d %(levelname)s %(message)s"))
     logging.getLogger().addHandler(file_handler)
 
-    thread.daemon = True  # allow the program to quit
 
-    from dbus.mainloop.glib import DBusGMainLoop
-    # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
-    DBusGMainLoop(set_as_default=True)
-
+def get_dbus_service():
     # formatting
     def _kwh(p, v): return (str(round(v, 2)) + 'kWh')
     def _wh(p, v): return (str(round(v, 2)) + 'Wh')
@@ -251,40 +234,47 @@ def main():
     def _v(p, v): return (str(round(v, 1)) + 'V')
     def _hz(p, v): return (str(round(v, 2)) + 'Hz')
 
-    global dbusservice
-    dbusservice = DbusDummyService(
-        # servicename='com.victronenergy.grid',
-        servicename='com.victronenergy.grid.cgwacs_edl21_ha',
-        deviceinstance=0,
-        paths={
-            '/Ac/Power': {'initial': None, 'textformat': _w},
-            '/Ac/L1/Voltage': {'initial': None, 'textformat': _v},
-            '/Ac/L2/Voltage': {'initial': None, 'textformat': _v},
-            '/Ac/L3/Voltage': {'initial': None, 'textformat': _v},
-            '/Ac/L1/Current': {'initial': None, 'textformat': _a},
-            '/Ac/L2/Current': {'initial': None, 'textformat': _a},
-            '/Ac/L3/Current': {'initial': None, 'textformat': _a},
-            '/Ac/L1/Power': {'initial': None, 'textformat': _w},
-            '/Ac/L2/Power': {'initial': None, 'textformat': _w},
-            '/Ac/L3/Power': {'initial': None, 'textformat': _w},
-            '/Ac/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
-            '/Ac/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
-        })
+    if get_dbus_service.dbusservice is None:
+        get_dbus_service.dbusservice = DbusDummyService(
+            # servicename='com.victronenergy.grid',
+            servicename='com.victronenergy.grid.cgwacs_edl21_ha',
+            deviceinstance=0,
+            paths={
+                '/Ac/Power': {'initial': None, 'textformat': _w},
+                '/Ac/L1/Voltage': {'initial': None, 'textformat': _v},
+                '/Ac/L2/Voltage': {'initial': None, 'textformat': _v},
+                '/Ac/L3/Voltage': {'initial': None, 'textformat': _v},
+                '/Ac/L1/Current': {'initial': None, 'textformat': _a},
+                '/Ac/L2/Current': {'initial': None, 'textformat': _a},
+                '/Ac/L3/Current': {'initial': None, 'textformat': _a},
+                '/Ac/L1/Power': {'initial': None, 'textformat': _w},
+                '/Ac/L2/Power': {'initial': None, 'textformat': _w},
+                '/Ac/L3/Power': {'initial': None, 'textformat': _w},
+                '/Ac/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
+                '/Ac/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
+            })
+        logging.info('Connected to dbus')
 
-    logging.info('Connected to dbus, and switching over to gobject.MainLoop() (= event based)')
+    return get_dbus_service.dbusservice
+
+
+get_dbus_service.dbusservice = None
+
+
+def main():
+    init_logging()
+    init_mqtt()
+
+    thread.daemon = True  # allow the program to quit
+
+    from dbus.mainloop.glib import DBusGMainLoop
+    # Have a mainloop, so we can send/receive asynchronous calls to and from dbus
+    DBusGMainLoop(set_as_default=True)
+
+    logging.debug('Switching over to gobject.MainLoop() (= event based)')
     mainloop = gobject.MainLoop()
     mainloop.run()
 
-
-# Konfiguration MQTT
-client = mqtt.Client(MQTTNAME)  # create new instance
-client.username_pw_set(broker_user, broker_pw)
-client.on_disconnect = on_disconnect
-client.on_connect = on_connect
-client.on_message = on_message
-client.connect(broker_address)  # connect to broker
-
-client.loop_start()
 
 if __name__ == "__main__":
     main()
