@@ -102,7 +102,7 @@ class DbusDummyService:
         # Create the management objects, as specified in the ccgx dbus-api document
         self._vedbusservice.add_path('/Mgmt/ProcessName', __file__)
         self._vedbusservice.add_path('/Mgmt/ProcessVersion',
-                                     'Unkown version, and running on Python ' + platform.python_version())
+                                     'running on Python ' + platform.python_version())
         self._vedbusservice.add_path('/Mgmt/Connection', connection)
 
         # Create the mandatory objects
@@ -121,6 +121,7 @@ class DbusDummyService:
         self._vedbusservice.add_path('/Connected', 0)
         self._vedbusservice.add_path('/Position', 0)  # DSTK_2022-10-25 bewirkt bei Gridmeter nichts ???
         self._vedbusservice.add_path('/UpdateIndex', 0)
+        self._vedbusservice.add_path("/Serial", 1234)
 
         for path, settings in self._paths.items():
             self._vedbusservice.add_path(
@@ -238,7 +239,7 @@ def get_dbus_service():
         get_dbus_service.dbusservice = DbusDummyService(
             # servicename='com.victronenergy.grid',
             servicename='com.victronenergy.grid.cgwacs_edl21_ha',
-            deviceinstance=0,
+            deviceinstance=31,  # = VRM instance ID
             paths={
                 '/Ac/Power': {'initial': None, 'textformat': _w},
                 '/Ac/L1/Voltage': {'initial': None, 'textformat': _v},
