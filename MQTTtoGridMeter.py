@@ -157,6 +157,11 @@ class DbusDummyService:
                 self._vedbusservice[f'/Ac/L{i}/Current'] = round(power / 230, 2)
                 self._vedbusservice[f'/Ac/L{i}/Power'] = power
                 log_value(power, f"power_l{i}", "W")
+            # Add L123/Energy/Forward/Reverse hoping this helps to show correct Consumption values in VRM
+            if totalin is not None:
+                self._vedbusservice[f'/Ac/L{i}/Energy/Forward'] = round(totalin / 3, 2)
+            if totalout is not None:
+                self._vedbusservice[f'/Ac/L{i}/Energy/Reverse'] = round(totalout / 3, 2)
 
         if totalin is not None:
             self._vedbusservice['/Ac/Energy/Forward'] = totalin  # consumption
@@ -253,6 +258,13 @@ def get_dbus_service():
                 '/Ac/L3/Power': {'initial': None, 'textformat': _w},
                 '/Ac/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
                 '/Ac/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
+
+                '/Ac/L1/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
+                '/Ac/L2/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
+                '/Ac/L3/Energy/Forward': {'initial': None, 'textformat': _kwh},  # energy bought from the grid
+                '/Ac/L1/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
+                '/Ac/L2/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
+                '/Ac/L3/Energy/Reverse': {'initial': None, 'textformat': _kwh},  # energy sold to the grid
             })
         logging.info('Connected to dbus')
 
