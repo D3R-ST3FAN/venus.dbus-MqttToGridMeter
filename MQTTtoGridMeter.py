@@ -40,10 +40,10 @@ sys.path.insert(1, os.path.join(os.path.dirname(__file__), '../ext/velib_python'
 path_UpdateIndex = '/UpdateIndex'
 
 # MQTT Setup
-broker_address = "homeassistant.local"
+broker_address = "192.168.40.227"
 MQTTNAME = "MQTTtoMeter"
 broker_user = "mqtttogridmeter"
-broker_pw = "xxx"
+broker_pw = "ac9tXVJXTDQSE"
 Zaehlersensorpfad = "sensor/hausstrom"
 
 
@@ -147,6 +147,8 @@ class DbusDummyService:
 
         self._vedbusservice['/Connected'] = 1
         self._last_update = time.time()
+
+        # see https://github.com/victronenergy/venus/wiki/dbus#grid-and-genset-meter
 
         self._vedbusservice['/Ac/L1/Voltage'] = 230
         self._vedbusservice['/Ac/L2/Voltage'] = 230
